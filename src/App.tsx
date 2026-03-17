@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Trash2, History, TrendingUp, Calendar, Activity, Award, Clock, Hand, Zap, Brain } from 'lucide-react';
+import { Plus, Trash2, History, TrendingUp, Calendar, Activity, Award, Clock, Hand, Zap, Brain, Edit2, X, Check } from 'lucide-react';
 
 const App = () => {
   const [records, setRecords] = useState(() => {
@@ -13,11 +13,11 @@ const App = () => {
     }
     // 如果没有本地数据，则使用默认的模拟数据
     return [
-      { id: 1, date: '03-10', left: 38.5, right: 40.0, fatigue: 2 },
-      { id: 2, date: '03-12', left: 40.2, right: 41.5, fatigue: 3 },
-      { id: 3, date: '03-14', left: 41.0, right: 43.2, fatigue: 1 },
-      { id: 4, date: '03-15', left: 43.5, right: 44.1, fatigue: 4 },
-      { id: 5, date: '03-17', left: 42.8, right: 45.6, fatigue: 2 },
+      { id: 1, date: '03-10', time: '08:30', left: 38.5, right: 40.0, fatigue: 2 },
+      { id: 2, date: '03-12', time: '09:15', left: 40.2, right: 41.5, fatigue: 3 },
+      { id: 3, date: '03-14', time: '18:20', left: null, right: 43.2, fatigue: 1 },
+      { id: 4, date: '03-15', time: '07:45', left: 43.5, right: null, fatigue: 4 },
+      { id: 5, date: '03-17', time: '20:00', left: 42.8, right: 45.6, fatigue: 2 },
     ];
   });
 
@@ -31,6 +31,10 @@ const App = () => {
   const [fatigue, setFatigue] = useState(3); // 默认中等
   const [activeTab, setActiveTab] = useState('dashboard');
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // 编辑状态
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ left: '', right: '', fatigue: 3 });
 
   // 定义疲劳等级及其样式属性
   const fatigueLevels = useMemo(() => [
@@ -98,14 +102,15 @@ const App = () => {
 
   const addRecord = (e) => {
     e.preventDefault();
-    if (!leftValue || !rightValue) return;
+    if (!leftValue && !rightValue) return; // 允许只填一只手
 
     const now = new Date();
     const newRecord = {
       id: Date.now(),
       date: `${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`,
-      left: parseFloat(leftValue),
-      right: parseFloat(rightValue),
+      time: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
+      left: leftValue ? parseFloat(leftValue) : null,
+      right: rightValue ? parseFloat(rightValue) : null,
       fatigue: fatigue,
       fullDate: now.toISOString()
     };
@@ -120,133 +125,203 @@ const App = () => {
     setRecords(records.filter(r => r.id !== id));
   };
 
+  const startEdit = (record) => {
+    setEditingId(record.id);
+    setEditForm({
+      left: record.left !== null ? record.left.toString() : '',
+      right: record.right !== null ? record.right.toString() : '',
+      fatigue: record.fatigue
+    });
+  };
+
+  const saveEdit = (id) => {
+    if (!editForm.left && !editForm.right) {
+      alert("至少需要填写一只手的数据");
+      return;
+    }
+    setRecords(records.map(r => {
+      if (r.id === id) {
+        return {
+          ...r,
+          left: editForm.left ? parseFloat(editForm.left) : null,
+          right: editForm.right ? parseFloat(editForm.right) : null,
+          fatigue: editForm.fatigue
+        };
+      }
+      return r;
+    }));
+    setEditingId(null);
+  };
+
   const stats = useMemo(() => {
     if (records.length === 0) return { maxL: 0, maxR: 0, avgFatigue: 0 };
-    const maxL = Math.max(...records.map(r => r.left));
-    const maxR = Math.max(...records.map(r => r.right));
+    const lefts = records.map(r => r.left).filter(v => v !== null);
+    const rights = records.map(r => r.right).filter(v => v !== null);
+    const maxL = lefts.length ? Math.max(...lefts) : 0;
+    const maxR = rights.length ? Math.max(...rights) : 0;
     const avgFatigue = (records.reduce((a, b) => a + b.fatigue, 0) / records.length).toFixed(1);
     return { maxL, maxR, avgFatigue };
   }, [records]);
 
-  // 趋势图组件（带交互查看功能）
+  // 趋势图组件（带交互查看功能和左右滑动）
   const LineChart = ({ data }) => {
     const [activeIndex, setActiveIndex] = useState(null);
+    const scrollRef = useRef(null);
     
+    // 当数据更新时，自动滚动到最右侧（最新数据）
+    useEffect(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+      }
+    }, [data]);
+
     if (data.length < 2) return (
       <div className="h-40 flex items-center justify-center text-slate-400 text-sm italic">
         需要至少两条记录来生成趋势图
       </div>
     );
 
-    const width = 300;
-    const height = 160;
+    // 动态计算宽度以支持横向滚动
+    const minPointWidth = 55;
+    const width = Math.max(300, data.length * minPointWidth);
+    const height = 180;
     const padding = 25;
+    const bottomPadding = 40; // 为底部的日期和时间标签留出空间
     
-    const gripValues = data.flatMap(d => [d.left, d.right]);
-    const minGrip = Math.min(...gripValues);
-    const maxGrip = Math.max(...gripValues);
+    const gripValues = data.flatMap(d => [d.left, d.right]).filter(v => v !== null);
+    const minGrip = gripValues.length ? Math.min(...gripValues) : 0;
+    const maxGrip = gripValues.length ? Math.max(...gripValues) : 10;
     const gripRange = maxGrip - minGrip || 10;
 
     const getX = (i) => (i / (data.length - 1)) * (width - padding * 2) + padding;
-    const getY = (val) => height - ((val - (minGrip - 5)) / (gripRange + 10)) * (height - padding * 2) - padding;
+    const getY = (val) => height - bottomPadding - ((val - (minGrip - 5)) / (gripRange + 10)) * (height - padding - bottomPadding);
     const getFatigueY = (f) => {
         const normalized = (5 - f) / 4; 
-        return height - (normalized * (height - padding * 2) + padding);
+        return height - bottomPadding - (normalized * (height - padding - bottomPadding));
     };
 
+    // 生成路径，处理 null 值（断点）
     const createPath = (key, isFatigue = false) => {
-      return data.map((d, i) => {
+      let path = '';
+      let isFirst = true;
+      data.forEach((d, i) => {
+        if (d[key] === null && !isFatigue) {
+          isFirst = true;
+          return;
+        }
         const x = getX(i);
         const y = isFatigue ? getFatigueY(d[key]) : getY(d[key]);
-        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-      }).join(' ');
+        if (isFirst) {
+          path += `M ${x} ${y} `;
+          isFirst = false;
+        } else {
+          path += `L ${x} ${y} `;
+        }
+      });
+      return path;
     };
 
     const activePoint = activeIndex !== null ? data[activeIndex] : null;
 
     return (
       <div className="w-full relative group">
-        <svg 
-          viewBox={`0 0 ${width} ${height}`} 
-          className="w-full h-auto drop-shadow-xl"
-          onClick={() => setActiveIndex(null)}
-        >
-          {/* 网格线 */}
-          <line x1={padding} y1={padding} x2={padding} y2={height-padding} stroke="#f1f5f9" strokeWidth="1" />
-          <line x1={padding} y1={height-padding} x2={width-padding} y2={height-padding} stroke="#f1f5f9" strokeWidth="1" />
-          
-          {/* 疲劳区域 */}
-          <path d={`${createPath('fatigue', true)} L ${getX(data.length-1)} ${height-padding} L ${getX(0)} ${height-padding} Z`} fill="rgba(245, 158, 11, 0.03)" stroke="none" />
+        <div ref={scrollRef} className="w-full overflow-x-auto no-scrollbar pb-2" style={{ scrollBehavior: 'smooth' }}>
+          <svg 
+            viewBox={`0 0 ${width} ${height}`} 
+            className="h-auto drop-shadow-xl"
+            style={{ width: `${width}px`, minWidth: '100%' }}
+            onClick={() => setActiveIndex(null)}
+          >
+            {/* 网格线 */}
+            <line x1={padding} y1={padding} x2={padding} y2={height-bottomPadding} stroke="#f1f5f9" strokeWidth="1" />
+            <line x1={padding} y1={height-bottomPadding} x2={width-padding} y2={height-bottomPadding} stroke="#f1f5f9" strokeWidth="1" />
+            
+            {/* 疲劳区域 */}
+            <path d={`${createPath('fatigue', true)} L ${getX(data.length-1)} ${height-bottomPadding} L ${getX(0)} ${height-bottomPadding} Z`} fill="rgba(245, 158, 11, 0.03)" stroke="none" />
 
-          {/* 数据线 */}
-          <path d={createPath('left')} fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          <path d={createPath('right')} fill="none" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          <path d={createPath('fatigue', true)} fill="none" stroke="#f59e0b" strokeWidth="2" strokeDasharray="4 2" strokeLinecap="round" opacity="0.6" />
-          
-          {/* 指示线 */}
-          {activeIndex !== null && (
-            <line 
-              x1={getX(activeIndex)} y1={padding} x2={getX(activeIndex)} y2={height-padding} 
-              stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4 2"
-            />
-          )}
-
-          {/* 数据点 */}
-          {data.map((d, i) => (
-            <React.Fragment key={i}>
-              <circle cx={getX(i)} cy={getY(d.left)} r={activeIndex === i ? "4" : "3"} fill="#3b82f6" stroke="white" strokeWidth="1" />
-              <circle cx={getX(i)} cy={getY(d.right)} r={activeIndex === i ? "4" : "3"} fill="#8b5cf6" stroke="white" strokeWidth="1" />
-              <circle cx={getX(i)} cy={getFatigueY(d.fatigue)} r="2" fill="#f59e0b" />
-              
-              {/* 点击感应区 (透明大按钮) */}
-              <rect 
-                x={getX(i) - (width/data.length)/2} 
-                y="0" 
-                width={width/data.length} 
-                height={height} 
-                fill="transparent" 
-                className="cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveIndex(i);
-                }}
+            {/* 数据线 */}
+            <path d={createPath('left')} fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={createPath('right')} fill="none" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={createPath('fatigue', true)} fill="none" stroke="#f59e0b" strokeWidth="2" strokeDasharray="4 2" strokeLinecap="round" opacity="0.6" />
+            
+            {/* 指示线 */}
+            {activeIndex !== null && (
+              <line 
+                x1={getX(activeIndex)} y1={padding} x2={getX(activeIndex)} y2={height-bottomPadding} 
+                stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4 2"
               />
-            </React.Fragment>
-          ))}
-        </svg>
+            )}
+
+            {/* 数据点和X轴标签 */}
+            {data.map((d, i) => (
+              <React.Fragment key={i}>
+                {d.left !== null && <circle cx={getX(i)} cy={getY(d.left)} r={activeIndex === i ? "4" : "3"} fill="#3b82f6" stroke="white" strokeWidth="1" />}
+                {d.right !== null && <circle cx={getX(i)} cy={getY(d.right)} r={activeIndex === i ? "4" : "3"} fill="#8b5cf6" stroke="white" strokeWidth="1" />}
+                <circle cx={getX(i)} cy={getFatigueY(d.fatigue)} r="2" fill="#f59e0b" />
+                
+                {/* X轴时间标签 */}
+                <text x={getX(i)} y={height - 20} fontSize="9" fill="#94a3b8" textAnchor="middle" fontWeight="bold">{d.date}</text>
+                <text x={getX(i)} y={height - 8} fontSize="8" fill="#cbd5e1" textAnchor="middle">{d.time || '00:00'}</text>
+
+                {/* 点击感应区 (透明大按钮) */}
+                <rect 
+                  x={getX(i) - (width/data.length)/2} 
+                  y="0" 
+                  width={width/data.length} 
+                  height={height} 
+                  fill="transparent" 
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveIndex(i);
+                  }}
+                />
+              </React.Fragment>
+            ))}
+          </svg>
+        </div>
 
         {/* 交互提示框 (Tooltip) */}
         {activeIndex !== null && activePoint && (
           <div 
-            className="absolute top-0 pointer-events-none transition-all duration-300 ease-out"
+            className="absolute top-0 pointer-events-none transition-all duration-300 ease-out z-10"
             style={{ 
-              left: `${(getX(activeIndex) / width) * 100}%`,
+              // 确保提示框不会超出屏幕边界
+              left: `max(60px, min(calc(100% - 60px), ${(getX(activeIndex) / width) * 100}%))`, 
               transform: `translateX(-50%) translateY(-100%)`,
               marginTop: '-10px'
             }}
           >
-            <div className="bg-white/90 backdrop-blur-md border border-slate-200 p-3 rounded-2xl shadow-2xl min-w-[120px]">
-              <div className="text-[10px] font-black text-slate-400 mb-2 uppercase flex justify-between">
-                <span>{activePoint.date}</span>
-                <span className="text-amber-500">{getFatigueConfig(activePoint.fatigue).emoji}</span>
+            <div className="bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-2xl shadow-2xl min-w-[120px]">
+              <div className="text-[10px] font-black text-slate-400 mb-2 uppercase flex justify-between items-center gap-2">
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {activePoint.date} {activePoint.time || ''}</span>
+                <span className="text-amber-500 text-sm">{getFatigueConfig(activePoint.fatigue).emoji}</span>
               </div>
               <div className="space-y-1">
                 <div className="flex justify-between items-center gap-4">
                   <span className="text-[10px] font-bold text-blue-600">左手</span>
-                  <span className="font-black text-sm">{activePoint.left}<span className="text-[8px] ml-0.5">kg</span></span>
+                  {activePoint.left !== null ? (
+                    <span className="font-black text-sm">{activePoint.left}<span className="text-[8px] ml-0.5">kg</span></span>
+                  ) : (
+                    <span className="font-black text-sm text-slate-300">-</span>
+                  )}
                 </div>
                 <div className="flex justify-between items-center gap-4">
                   <span className="text-[10px] font-bold text-purple-600">右手</span>
-                  <span className="font-black text-sm">{activePoint.right}<span className="text-[8px] ml-0.5">kg</span></span>
+                  {activePoint.right !== null ? (
+                    <span className="font-black text-sm">{activePoint.right}<span className="text-[8px] ml-0.5">kg</span></span>
+                  ) : (
+                    <span className="font-black text-sm text-slate-300">-</span>
+                  )}
                 </div>
               </div>
             </div>
             {/* 提示框下的小箭头 */}
-            <div className="w-2 h-2 bg-white/90 rotate-45 border-r border-b border-slate-200 mx-auto -mt-1 shadow-sm"></div>
+            <div className="w-2 h-2 bg-white/95 rotate-45 border-r border-b border-slate-200 mx-auto -mt-1 shadow-sm"></div>
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-2 px-2 mt-4 text-[9px] font-black uppercase tracking-widest text-slate-400">
+        <div className="grid grid-cols-3 gap-2 px-2 mt-2 text-[9px] font-black uppercase tracking-widest text-slate-400">
            <div className="flex items-center gap-1.5"><div className="w-2 h-0.5 bg-blue-500 rounded-full"></div> 左手</div>
            <div className="flex items-center gap-1.5"><div className="w-2 h-0.5 bg-purple-500 rounded-full"></div> 右手</div>
            <div className="flex items-center gap-1.5"><div className="w-2 h-0.5 border-t border-dashed border-amber-500"></div> 疲劳</div>
@@ -295,7 +370,7 @@ const App = () => {
                     <input 
                       type="number" step="0.1" value={leftValue} onChange={e => setLeftValue(e.target.value)}
                       className="w-full bg-slate-50/50 border border-slate-100 rounded-2xl py-5 px-2 text-center text-3xl font-black outline-none focus:ring-4 focus:ring-blue-500/10 focus:bg-white transition-all shadow-inner"
-                      placeholder="0.0"
+                      placeholder="-"
                     />
                   </div>
                   <div className="flex-1 space-y-2 group">
@@ -305,7 +380,7 @@ const App = () => {
                     <input 
                       type="number" step="0.1" value={rightValue} onChange={e => setRightValue(e.target.value)}
                       className="w-full bg-slate-50/50 border border-slate-100 rounded-2xl py-5 px-2 text-center text-3xl font-black outline-none focus:ring-4 focus:ring-purple-500/10 focus:bg-white transition-all shadow-inner"
-                      placeholder="0.0"
+                      placeholder="-"
                     />
                   </div>
                 </div>
@@ -356,9 +431,9 @@ const App = () => {
                 <h2 className="text-sm font-black flex items-center gap-2 text-slate-800 uppercase tracking-wider">
                   <TrendingUp className="w-4 h-4 text-blue-500" /> 力量趋势图
                 </h2>
-                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter italic">点击查看详情</p>
+                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter italic">左右滑动查看</p>
               </div>
-              <LineChart data={records.slice(-7)} />
+              <LineChart data={records} />
             </section>
 
             <div className="grid grid-cols-2 gap-4">
@@ -389,6 +464,44 @@ const App = () => {
             <div className="space-y-3">
               {[...records].reverse().map((record) => {
                 const config = getFatigueConfig(record.fatigue);
+                const isEditing = editingId === record.id;
+
+                if (isEditing) {
+                  return (
+                    <div key={record.id} className="bg-white p-5 rounded-[2.2rem] shadow-lg border border-blue-100 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-black text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3"/> {record.date} {record.time || ''}</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingId(null)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-all"><X className="w-4 h-4" /></button>
+                          <button onClick={() => saveEdit(record.id)} className="p-2 text-green-500 hover:bg-green-50 rounded-full transition-all"><Check className="w-4 h-4" /></button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-3">
+                        <div className="flex-1 space-y-1">
+                          <label className="text-[9px] font-black text-blue-500 uppercase">左手 (kg)</label>
+                          <input type="number" step="0.1" value={editForm.left} onChange={e => setEditForm({...editForm, left: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-center font-black outline-none focus:border-blue-400" placeholder="-" />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <label className="text-[9px] font-black text-purple-500 uppercase">右手 (kg)</label>
+                          <input type="number" step="0.1" value={editForm.right} onChange={e => setEditForm({...editForm, right: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-center font-black outline-none focus:border-purple-400" placeholder="-" />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1 mt-2">
+                        <label className="text-[9px] font-black text-amber-500 uppercase">疲劳程度</label>
+                        <div className="flex justify-between gap-1">
+                          {fatigueLevels.map(lvl => (
+                            <button key={lvl.level} onClick={() => setEditForm({...editForm, fatigue: lvl.level})} className={`flex-1 py-2 rounded-xl text-lg transition-all ${editForm.fatigue === lvl.level ? 'bg-amber-100 scale-110 shadow-sm' : 'bg-slate-50 grayscale opacity-50'}`}>
+                              {lvl.emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={record.id} className="bg-white/70 backdrop-blur-md p-5 rounded-[2.2rem] shadow-sm border border-white flex items-center justify-between group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
                     <div className="flex items-center gap-4">
@@ -397,24 +510,29 @@ const App = () => {
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="font-black text-slate-800 tracking-tight text-sm">{record.date}</p>
+                          <p className="font-black text-slate-800 tracking-tight text-sm">{record.date} <span className="text-[10px] text-slate-400 font-bold">{record.time || ''}</span></p>
                           <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase ${config.bg} ${config.textColor}`}>
                             {config.label}
                           </span>
                         </div>
                         <div className="flex gap-4 mt-2">
                           <span className="text-[11px] font-bold text-blue-500 flex items-center gap-1">
-                            <Hand className="w-3 h-3 transform -scale-x-100" /> {record.left}
+                            <Hand className="w-3 h-3 transform -scale-x-100" /> {record.left !== null ? record.left : '-'}
                           </span>
                           <span className="text-[11px] font-bold text-purple-500 flex items-center gap-1">
-                            <Hand className="w-3 h-3" /> {record.right}
+                            <Hand className="w-3 h-3" /> {record.right !== null ? record.right : '-'}
                           </span>
                         </div>
                       </div>
                     </div>
-                    <button onClick={() => deleteRecord(record.id)} className="p-3 text-slate-200 hover:text-red-400 hover:bg-red-50 rounded-full transition-all">
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    <div className="flex gap-1">
+                      <button onClick={() => startEdit(record)} className="p-3 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-all">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => deleteRecord(record.id)} className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
