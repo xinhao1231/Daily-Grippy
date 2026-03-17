@@ -2,7 +2,30 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Trash2, History, TrendingUp, Calendar, Activity, Award, Clock, Hand, Zap, Brain } from 'lucide-react';
 
 const App = () => {
-  const [records, setRecords] = useState([]);
+  const [records, setRecords] = useState(() => {
+    const saved = localStorage.getItem('grip_strength_records');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse records from localStorage', e);
+      }
+    }
+    // 如果没有本地数据，则使用默认的模拟数据
+    return [
+      { id: 1, date: '03-10', left: 38.5, right: 40.0, fatigue: 2 },
+      { id: 2, date: '03-12', left: 40.2, right: 41.5, fatigue: 3 },
+      { id: 3, date: '03-14', left: 41.0, right: 43.2, fatigue: 1 },
+      { id: 4, date: '03-15', left: 43.5, right: 44.1, fatigue: 4 },
+      { id: 5, date: '03-17', left: 42.8, right: 45.6, fatigue: 2 },
+    ];
+  });
+
+  // 当 records 发生变化时，自动保存到 localStorage
+  useEffect(() => {
+    localStorage.setItem('grip_strength_records', JSON.stringify(records));
+  }, [records]);
+
   const [leftValue, setLeftValue] = useState('');
   const [rightValue, setRightValue] = useState('');
   const [fatigue, setFatigue] = useState(3); // 默认中等
@@ -69,14 +92,6 @@ const App = () => {
   };
 
   useEffect(() => {
-    const mockData = [
-      { id: 1, date: '03-10', left: 38.5, right: 40.0, fatigue: 2 },
-      { id: 2, date: '03-12', left: 40.2, right: 41.5, fatigue: 3 },
-      { id: 3, date: '03-14', left: 41.0, right: 43.2, fatigue: 1 },
-      { id: 4, date: '03-15', left: 43.5, right: 44.1, fatigue: 4 },
-      { id: 5, date: '03-17', left: 42.8, right: 45.6, fatigue: 2 },
-    ];
-    setRecords(mockData);
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
