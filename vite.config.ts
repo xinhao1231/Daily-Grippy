@@ -13,11 +13,7 @@ export default defineConfig(({mode}) => {
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: 'auto',
-<<<<<<< HEAD
         includeAssets: ['favicon.ico', 'icon/icon1.png'],
-=======
-        includeAssets: ['favicon.ico', 'icon/unnamed.png'],
->>>>>>> parent of 8b8ba17 (图标更改)
         manifest: {
           name: 'Daily Grippy',
           short_name: 'Daily Grippy',
@@ -30,41 +26,25 @@ export default defineConfig(({mode}) => {
           start_url: '/',
           icons: [
             {
-<<<<<<< HEAD
               src: '/icon/icon1.png',
-=======
-              src: '/icon/unnamed.png',
->>>>>>> parent of 8b8ba17 (图标更改)
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-<<<<<<< HEAD
               src: '/icon/icon1.png',
-=======
-              src: '/icon/unnamed.png',
->>>>>>> parent of 8b8ba17 (图标更改)
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-<<<<<<< HEAD
               src: '/icon/icon1.png',
-=======
-              src: '/icon/unnamed.png',
->>>>>>> parent of 8b8ba17 (图标更改)
               sizes: '192x192',
               type: 'image/png',
               purpose: 'maskable',
             },
             {
-<<<<<<< HEAD
               src: '/icon/icon1.png',
-=======
-              src: '/icon/unnamed.png',
->>>>>>> parent of 8b8ba17 (图标更改)
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
@@ -73,21 +53,13 @@ export default defineConfig(({mode}) => {
           categories: ['productivity', 'health'],
           screenshots: [
             {
-<<<<<<< HEAD
               src: '/icon/icon1.png',
-=======
-              src: '/icon/unnamed.png',
->>>>>>> parent of 8b8ba17 (图标更改)
               sizes: '540x720',
               type: 'image/png',
               form_factor: 'narrow',
             },
             {
-<<<<<<< HEAD
               src: '/icon/icon1.png',
-=======
-              src: '/icon/unnamed.png',
->>>>>>> parent of 8b8ba17 (图标更改)
               sizes: '1280x720',
               type: 'image/png',
               form_factor: 'wide',

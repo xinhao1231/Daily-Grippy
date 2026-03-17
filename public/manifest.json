@@ -11,41 +11,25 @@
   "categories": ["productivity", "health"],
   "icons": [
     {
-<<<<<<< HEAD
       "src": "/icon/icon1.png",
-=======
-      "src": "/icon/unnamed.png",
->>>>>>> parent of 8b8ba17 (图标更改)
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-<<<<<<< HEAD
       "src": "/icon/icon1.png",
-=======
-      "src": "/icon/unnamed.png",
->>>>>>> parent of 8b8ba17 (图标更改)
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-<<<<<<< HEAD
       "src": "/icon/icon1.png",
-=======
-      "src": "/icon/unnamed.png",
->>>>>>> parent of 8b8ba17 (图标更改)
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-<<<<<<< HEAD
       "src": "/icon/icon1.png",
-=======
-      "src": "/icon/unnamed.png",
->>>>>>> parent of 8b8ba17 (图标更改)
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -53,21 +37,13 @@
   ],
   "screenshots": [
     {
-<<<<<<< HEAD
       "src": "/icon/icon1.png",
-=======
-      "src": "/icon/unnamed.png",
->>>>>>> parent of 8b8ba17 (图标更改)
       "sizes": "540x720",
       "type": "image/png",
       "form_factor": "narrow"
     },
     {
-<<<<<<< HEAD
       "src": "/icon/icon1.png",
-=======
-      "src": "/icon/unnamed.png",
->>>>>>> parent of 8b8ba17 (图标更改)
       "sizes": "1280x720",
       "type": "image/png",
       "form_factor": "wide"
@@ -81,11 +57,7 @@
       "url": "/",
       "icons": [
         {
-<<<<<<< HEAD
           "src": "/icon/icon1.png",
-=======
-          "src": "/icon/unnamed.png",
->>>>>>> parent of 8b8ba17 (图标更改)
           "sizes": "192x192"
         }
       ]
