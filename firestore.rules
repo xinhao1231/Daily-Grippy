@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users/{userId}/records
+    // Document ID: auto-generated
+    // Fields:
+    //   - uid: string (required) - The user ID of the owner
+    //   - date: string (required) - MM-DD format
+    //   - time: string (required) - HH:MM format
+    //   - left: number (optional) - Left hand grip strength in kg
+    //   - right: number (optional) - Right hand grip strength in kg
+    //   - fatigue: number (required) - Fatigue level from 1 to 5
+    //   - createdAt: string (required) - ISO timestamp of creation
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function isValidGripRecord(data) {
+      // Must have required fields
+      let hasRequired = data.keys().hasAll(['uid', 'date', 'time', 'fatigue', 'createdAt']);
+      
+      // Validate types and constraints
+      let validUid = data.uid is string && data.uid.size() > 0 && data.uid.size() < 100;
+      let validDate = data.date is string && data.date.size() == 5; // MM-DD
+      let validTime = data.time is string && data.time.size() == 5; // HH:MM
+      let validFatigue = data.fatigue is number && data.fatigue >= 1 && data.fatigue <= 5;
+      let validCreatedAt = isValidDateString(data.createdAt);
+      
+      // Optional fields
+      let validLeft = !('left' in data) || data.left == null || (data.left is number && data.left >= 0 && data.left <= 200);
+      let validRight = !('right' in data) || data.right == null || (data.right is number && data.right >= 0 && data.right <= 200);
+      
+      // Must have at least one hand recorded
+      let hasAtLeastOneHand = ('left' in data && data.left != null) || ('right' in data && data.right != null);
+
+      return hasRequired && validUid && validDate && validTime && validFatigue && validCreatedAt && validLeft && validRight && hasAtLeastOneHand;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    match /users/{userId}/records/{recordId} {
+      // Read: Only the owner can read their records
+      allow read: if isOwner(userId);
+      
+      // Create: Must be the owner, uid must match, and data must be valid
+      allow create: if isOwner(userId) 
+                    && request.resource.data.uid == userId 
+                    && isValidGripRecord(request.resource.data);
+                    
+      // Update: Must be the owner, uid and createdAt must not change, and data must be valid
+      allow update: if isOwner(userId) 
+                    && isDocOwner()
+                    && uidNotModified()
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && isValidGripRecord(request.resource.data);
+                    
+      // Delete: Only the owner can delete their records
+      allow delete: if isOwner(userId) && isDocOwner();
+    }
+  }
+}

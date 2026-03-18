@@ -1,30 +1,39 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Trash2, History, TrendingUp, Calendar, Activity, Award, Clock, Hand, Zap, Brain, Edit2, X, Check } from 'lucide-react';
+import { Plus, Trash2, History, TrendingUp, Calendar, Activity, Award, Clock, Hand, Zap, Brain, Edit2, X, Check, Download, Upload, LogOut } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { auth, db, loginWithGoogle, logout } from './firebase';
 
 const App = () => {
-  const [records, setRecords] = useState(() => {
-    const saved = localStorage.getItem('grip_strength_records');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse records from localStorage', e);
-      }
-    }
-    // 如果没有本地数据，则使用默认的模拟数据
-    return [
-      { id: 1, date: '03-10', time: '08:30', left: 38.5, right: 40.0, fatigue: 2 },
-      { id: 2, date: '03-12', time: '09:15', left: 40.2, right: 41.5, fatigue: 3 },
-      { id: 3, date: '03-14', time: '18:20', left: null, right: 43.2, fatigue: 1 },
-      { id: 4, date: '03-15', time: '07:45', left: 43.5, right: null, fatigue: 4 },
-      { id: 5, date: '03-17', time: '20:00', left: 42.8, right: 45.6, fatigue: 2 },
-    ];
-  });
+  const [user, setUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [records, setRecords] = useState([]);
 
-  // 当 records 发生变化时，自动保存到 localStorage
   useEffect(() => {
-    localStorage.setItem('grip_strength_records', JSON.stringify(records));
-  }, [records]);
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    if (!user) {
+      setRecords([]);
+      return;
+    }
+
+    const q = query(collection(db, `users/${user.uid}/records`), orderBy('id', 'asc'));
+    const unsubscribeData = onSnapshot(q, (snapshot) => {
+      const fetchedRecords = snapshot.docs.map(doc => doc.data());
+      setRecords(fetchedRecords);
+    }, (error) => {
+      console.error("Firestore Error:", error);
+    });
+
+    return () => unsubscribeData();
+  }, [user, isAuthReady]);
 
   const [leftValue, setLeftValue] = useState('');
   const [rightValue, setRightValue] = useState('');
@@ -35,6 +44,58 @@ const App = () => {
   // 编辑状态
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ left: '', right: '', fatigue: 3 });
+
+  const fileInputRef = useRef(null);
+
+  const exportData = () => {
+    const dataStr = JSON.stringify(records, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `grip_strength_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = (event) => {
+    const file = event.target.files[0];
+    if (!file || !user) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const result = e.target?.result;
+        if (typeof result !== 'string') return;
+        
+        const importedRecords = JSON.parse(result);
+        if (Array.isArray(importedRecords)) {
+          let addedCount = 0;
+          for (const ir of importedRecords) {
+            if (!records.find(r => r.id === ir.id)) {
+              const recordToSave = {
+                ...ir,
+                uid: user.uid,
+                createdAt: ir.createdAt || new Date().toISOString()
+              };
+              await setDoc(doc(db, `users/${user.uid}/records`, ir.id.toString()), recordToSave);
+              addedCount++;
+            }
+          }
+          alert(`成功导入并合并了 ${addedCount} 条新记录！`);
+        } else {
+          alert('文件格式不正确，请选择有效的备份文件。');
+        }
+      } catch (error) {
+        console.error('Import error:', error);
+        alert('读取文件失败，请确保是有效的 JSON 备份文件。');
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
 
   // 定义疲劳等级及其样式属性
   const fatigueLevels = useMemo(() => [
@@ -100,29 +161,42 @@ const App = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const addRecord = (e) => {
+  const addRecord = async (e) => {
     e.preventDefault();
     if (!leftValue && !rightValue) return; // 允许只填一只手
+    if (!user) return;
 
     const now = new Date();
+    const id = Date.now();
     const newRecord = {
-      id: Date.now(),
+      id,
+      uid: user.uid,
       date: `${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`,
       time: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
       left: leftValue ? parseFloat(leftValue) : null,
       right: rightValue ? parseFloat(rightValue) : null,
       fatigue: fatigue,
-      fullDate: now.toISOString()
+      createdAt: now.toISOString()
     };
 
-    setRecords([...records, newRecord]);
-    setLeftValue('');
-    setRightValue('');
-    setFatigue(3);
+    try {
+      await setDoc(doc(db, `users/${user.uid}/records`, id.toString()), newRecord);
+      setLeftValue('');
+      setRightValue('');
+      setFatigue(3);
+    } catch (error) {
+      console.error("Error adding document: ", error);
+      alert("保存失败，请重试");
+    }
   };
 
-  const deleteRecord = (id) => {
-    setRecords(records.filter(r => r.id !== id));
+  const deleteRecord = async (id) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/records`, id.toString()));
+    } catch (error) {
+      console.error("Error deleting document: ", error);
+    }
   };
 
   const startEdit = (record) => {
@@ -134,23 +208,30 @@ const App = () => {
     });
   };
 
-  const saveEdit = (id) => {
+  const saveEdit = async (id) => {
     if (!editForm.left && !editForm.right) {
       alert("至少需要填写一只手的数据");
       return;
     }
-    setRecords(records.map(r => {
-      if (r.id === id) {
-        return {
-          ...r,
-          left: editForm.left ? parseFloat(editForm.left) : null,
-          right: editForm.right ? parseFloat(editForm.right) : null,
-          fatigue: editForm.fatigue
-        };
-      }
-      return r;
-    }));
-    setEditingId(null);
+    if (!user) return;
+
+    const recordToEdit = records.find(r => r.id === id);
+    if (!recordToEdit) return;
+
+    const updatedRecord = {
+      ...recordToEdit,
+      left: editForm.left ? parseFloat(editForm.left) : null,
+      right: editForm.right ? parseFloat(editForm.right) : null,
+      fatigue: editForm.fatigue
+    };
+
+    try {
+      await setDoc(doc(db, `users/${user.uid}/records`, id.toString()), updatedRecord);
+      setEditingId(null);
+    } catch (error) {
+      console.error("Error updating document: ", error);
+      alert("更新失败，请重试");
+    }
   };
 
   const stats = useMemo(() => {
@@ -330,6 +411,42 @@ const App = () => {
     );
   };
 
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center p-6 selection:bg-blue-100">
+        <div className="fixed top-[-10%] left-[-10%] w-[60%] h-[60%] bg-blue-100/30 blur-[120px] rounded-full -z-10"></div>
+        <div className="fixed bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-purple-100/30 blur-[120px] rounded-full -z-10"></div>
+        
+        <div className="w-20 h-20 bg-white rounded-3xl shadow-xl border border-slate-100 flex items-center justify-center mb-8">
+          <Activity className="w-10 h-10 text-blue-500" />
+        </div>
+        <h1 className="text-4xl font-black tracking-tight text-slate-800 mb-2 text-center">力量记录</h1>
+        <p className="text-slate-500 font-medium mb-12 text-center max-w-xs">连接云端数据库，您的握力数据将永久保存，永不丢失。</p>
+        
+        <button 
+          onClick={loginWithGoogle}
+          className="flex items-center gap-3 bg-white px-8 py-4 rounded-full shadow-xl shadow-slate-200/50 border border-slate-100 hover:scale-105 active:scale-95 transition-all"
+        >
+          <svg className="w-6 h-6" viewBox="0 0 24 24">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+          </svg>
+          <span className="font-black text-slate-700">使用 Google 账号登录</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans selection:bg-blue-100 pb-20">
       <div className="fixed top-[-10%] left-[-10%] w-[60%] h-[60%] bg-blue-100/30 blur-[120px] rounded-full -z-10"></div>
@@ -343,8 +460,17 @@ const App = () => {
             {currentTime.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
           </p>
         </div>
-        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center">
-          <Activity className="w-6 h-6 text-blue-500" />
+        <div className="flex items-center gap-3">
+          <button onClick={logout} className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest flex items-center gap-1">
+            <LogOut className="w-3 h-3" /> 退出
+          </button>
+          <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center overflow-hidden">
+            {user.photoURL ? (
+              <img src={user.photoURL} alt="avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <Activity className="w-6 h-6 text-blue-500" />
+            )}
+          </div>
         </div>
       </header>
 
@@ -456,9 +582,17 @@ const App = () => {
           </div>
         ) : (
           <div className="space-y-4 animate-in slide-in-from-right-4 duration-500">
-            <div className="flex justify-between items-end px-4 mb-2">
+            <div className="flex justify-between items-center px-4 mb-2">
               <h2 className="text-2xl font-black text-slate-800">历史档案</h2>
-              <div className="text-[9px] font-black bg-slate-100 px-3 py-1.5 rounded-full text-slate-400 uppercase tracking-widest font-mono">History Log</div>
+              <div className="flex gap-2">
+                <button onClick={exportData} className="flex items-center gap-1 px-3 py-1.5 bg-white rounded-full shadow-sm border border-slate-100 text-[10px] font-black text-blue-500 hover:bg-blue-50 transition-all uppercase tracking-widest">
+                  <Download className="w-3 h-3" /> 导出
+                </button>
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1 px-3 py-1.5 bg-white rounded-full shadow-sm border border-slate-100 text-[10px] font-black text-purple-500 hover:bg-purple-50 transition-all uppercase tracking-widest">
+                  <Upload className="w-3 h-3" /> 导入
+                </button>
+                <input type="file" accept=".json" ref={fileInputRef} onChange={importData} className="hidden" />
+              </div>
             </div>
             
             <div className="space-y-3">
@@ -541,20 +675,26 @@ const App = () => {
         )}
       </main>
 
-      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[85%] max-w-sm bg-white/80 backdrop-blur-3xl border border-white/50 p-2 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex justify-between z-50">
+      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[85%] max-w-sm bg-white/40 backdrop-blur-xl border border-white/60 p-2 rounded-[2.5rem] shadow-[0_8px_32px_rgba(0,0,0,0.08)] flex justify-between z-50 transition-all duration-500 hover:bg-white/50 hover:shadow-[0_12px_40px_rgba(0,0,0,0.12)]">
         <button 
           onClick={() => setActiveTab('dashboard')}
-          className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-full transition-all duration-500 ${activeTab === 'dashboard' ? 'bg-slate-900 text-white shadow-xl shadow-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
+          className={`relative flex-1 flex items-center justify-center py-4 rounded-full transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] overflow-hidden active:scale-95 ${activeTab === 'dashboard' ? 'text-white shadow-lg shadow-slate-400/30' : 'text-slate-500 hover:text-slate-800 hover:bg-white/40'}`}
         >
-          <Activity className="w-5 h-5" />
-          {activeTab === 'dashboard' && <span className="text-xs font-black tracking-tight ml-2">主页</span>}
+          <div className={`absolute inset-0 bg-gradient-to-tr from-slate-800 to-slate-900 rounded-full -z-10 transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${activeTab === 'dashboard' ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`}></div>
+          <Activity className={`w-5 h-5 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${activeTab === 'dashboard' ? 'scale-110' : 'scale-100'}`} />
+          <div className={`grid transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${activeTab === 'dashboard' ? 'grid-cols-[1fr] opacity-100 translate-x-0 ml-2' : 'grid-cols-[0fr] opacity-0 -translate-x-4 ml-0'}`}>
+            <span className="overflow-hidden whitespace-nowrap text-xs font-black tracking-tight">主页</span>
+          </div>
         </button>
         <button 
           onClick={() => setActiveTab('history')}
-          className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-full transition-all duration-500 ${activeTab === 'history' ? 'bg-slate-900 text-white shadow-xl shadow-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
+          className={`relative flex-1 flex items-center justify-center py-4 rounded-full transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] overflow-hidden active:scale-95 ${activeTab === 'history' ? 'text-white shadow-lg shadow-slate-400/30' : 'text-slate-500 hover:text-slate-800 hover:bg-white/40'}`}
         >
-          <History className="w-5 h-5" />
-          {activeTab === 'history' && <span className="text-xs font-black tracking-tight ml-2">档案</span>}
+          <div className={`absolute inset-0 bg-gradient-to-tr from-slate-800 to-slate-900 rounded-full -z-10 transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${activeTab === 'history' ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`}></div>
+          <History className={`w-5 h-5 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${activeTab === 'history' ? 'scale-110' : 'scale-100'}`} />
+          <div className={`grid transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${activeTab === 'history' ? 'grid-cols-[1fr] opacity-100 translate-x-0 ml-2' : 'grid-cols-[0fr] opacity-0 -translate-x-4 ml-0'}`}>
+            <span className="overflow-hidden whitespace-nowrap text-xs font-black tracking-tight">档案</span>
+          </div>
         </button>
       </nav>
     </div>

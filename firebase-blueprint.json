@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "GripRecord": {
+      "title": "Grip Strength Record",
+      "description": "A single record of left and right hand grip strength along with fatigue level.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user ID of the owner."
+        },
+        "date": {
+          "type": "string",
+          "description": "The date of the record (MM-DD format)."
+        },
+        "time": {
+          "type": "string",
+          "description": "The time of the record (HH:MM format)."
+        },
+        "left": {
+          "type": "number",
+          "description": "Left hand grip strength in kg. Can be null/omitted."
+        },
+        "right": {
+          "type": "number",
+          "description": "Right hand grip strength in kg. Can be null/omitted."
+        },
+        "fatigue": {
+          "type": "number",
+          "description": "Fatigue level from 1 to 5."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of creation."
+        }
+      },
+      "required": ["uid", "date", "time", "fatigue", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}/records/{recordId}": {
+      "schema": {
+        "$ref": "#/entities/GripRecord"
+      },
+      "description": "Grip strength records for a specific user."
+    }
+  }
+}
